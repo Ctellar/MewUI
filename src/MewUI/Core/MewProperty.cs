@@ -31,6 +31,19 @@ public abstract class MewProperty
     internal int Id { get; }
 
     /// <summary>
+    /// True when this property was registered via <see cref="MewProperty{T}.RegisterReadOnly{TOwner}"/>.
+    /// Read-only properties reject the public <c>SetValue(MewProperty&lt;T&gt;, T)</c> and
+    /// <c>SetBinding</c> paths; the owner must use the <see cref="MewPropertyKey{T}"/> overload.
+    /// </summary>
+    public bool IsReadOnly => ReadOnlyKey != null;
+
+    /// <summary>
+    /// Capability token associated with a read-only registration. Used to verify that
+    /// callers of the <see cref="MewPropertyKey{T}"/> overload actually possess the key.
+    /// </summary>
+    internal object? ReadOnlyKey { get; set; }
+
+    /// <summary>
     /// Optional per-property callback that also receives old and new effective values (boxed).
     /// Registered via the <c>changed</c> parameter of <see cref="MewProperty{T}.Register{TOwner}"/>
     /// overload that accepts <c>Action{TOwner, T, T}</c>.
@@ -197,5 +210,45 @@ public sealed class MewProperty<T> : MewProperty
         }
 
         return property;
+    }
+
+    /// <summary>
+    /// Registers a new read-only property descriptor and returns a <see cref="MewPropertyKey{T}"/>
+    /// that authorizes mutation. The owning type should expose the <c>Key.Property</c> as a
+    /// public <c>MewProperty&lt;T&gt;</c> for read access while keeping the key private.
+    /// </summary>
+    /// <typeparam name="TOwner">The declaring control type.</typeparam>
+    /// <param name="name">Property name.</param>
+    /// <param name="defaultValue">Default value when not set by style or owner.</param>
+    /// <param name="options">Metadata flags.</param>
+    /// <param name="changed">Callback invoked when the property value changes.</param>
+    /// <param name="coerce">Callback invoked to coerce the property value.</param>
+    public static MewPropertyKey<T> RegisterReadOnly<TOwner>(
+        string name,
+        T defaultValue,
+        MewPropertyOptions options = MewPropertyOptions.None,
+        Action<TOwner, T, T>? changed = null,
+        Func<TOwner, T, T>? coerce = null)
+    {
+        var property = Register<TOwner>(name, defaultValue, options, changed, coerce);
+        var key = new MewPropertyKey<T>(property);
+        property.ReadOnlyKey = key;
+        return key;
+    }
+}
+
+/// <summary>
+/// Capability token for mutating a read-only <see cref="MewProperty{T}"/>.
+/// Hold privately on the declaring type; expose only <see cref="Property"/> publicly.
+/// </summary>
+/// <typeparam name="T">The property value type.</typeparam>
+public sealed class MewPropertyKey<T>
+{
+    /// <summary>The underlying read-only property descriptor (safe to expose publicly for reads).</summary>
+    public MewProperty<T> Property { get; }
+
+    internal MewPropertyKey(MewProperty<T> property)
+    {
+        Property = property;
     }
 }
