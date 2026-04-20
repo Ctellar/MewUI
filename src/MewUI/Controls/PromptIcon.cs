@@ -37,6 +37,7 @@ public sealed class PromptIcon : FrameworkElement
 
     // Static shared resources (factory-lifetime, never disposed).
     private static bool _staticInit;
+
     private static IPen? _penQuestionStroke;
     private static IPen? _penInfoStroke;
     private static IPen? _penWarningStroke;
@@ -56,7 +57,6 @@ public sealed class PromptIcon : FrameworkElement
     private static IBrush? _brushCrashHorn;
     private static IBrush? _brushCrashBody;
 
-    // Per-instance: bounds-dependent gradient brushes (circle icons).
     private PromptIconKind _cachedKind;
     private Rect _cachedBounds;
     private IBrush? _fill;
@@ -86,22 +86,28 @@ public sealed class PromptIcon : FrameworkElement
             case PromptIconKind.Question:
                 DrawCircleIcon(context, bounds, _fill!, _penQuestionStroke!, QuestionGlyph, _brushQuestionGlyph!, 0.628);
                 break;
+
             case PromptIconKind.Info:
                 DrawCircleIcon(context, bounds, _fill!, _penInfoStroke!, InfoGlyph, _brushInfoGlyph!, 0.610);
                 break;
+
             case PromptIconKind.Warning:
                 DrawGeometry(context, WarningBackground, bounds, _fill, _penWarningStroke, 1.0, Stretch.Uniform);
                 DrawGeometry(context, WarningGlyph, bounds, _brushWarningGlyph, null, 0.593, Stretch.Uniform);
                 break;
+
             case PromptIconKind.Error:
                 DrawCircleIcon(context, bounds, _fill!, _penErrorStroke!, ErrorGlyph, _brushErrorGlyph!, 0.45);
                 break;
+
             case PromptIconKind.Success:
                 DrawCircleIcon(context, bounds, _fill!, _penSuccessStroke!, SuccessGlyph, _brushSuccessGlyph!, 0.572);
                 break;
+
             case PromptIconKind.Shield:
                 DrawShield(context, bounds);
                 break;
+
             case PromptIconKind.Crash:
                 DrawCrash(context, bounds);
                 break;
@@ -173,24 +179,22 @@ public sealed class PromptIcon : FrameworkElement
 
     private static void DrawShield(IGraphicsContext context, Rect bounds)
     {
-        DrawInSourceRect(context, ShieldOutline.GetBounds(), bounds, 1.0, Stretch.Uniform, () =>
-        {
-            context.FillPath(ShieldLeft, _brushShieldLeft!);
-            context.FillPath(ShieldRight, _brushShieldRight!);
-            context.DrawPath(ShieldOutline, _penShieldOutline!);
-        });
+        BeginSourceRect(context, ShieldOutline.GetBounds(), bounds, 1.0, Stretch.Uniform);
+        context.FillPath(ShieldLeft, _brushShieldLeft!);
+        context.FillPath(ShieldRight, _brushShieldRight!);
+        context.DrawPath(ShieldOutline, _penShieldOutline!);
+        context.Restore();
     }
 
     private static void DrawCrash(IGraphicsContext context, Rect bounds)
     {
-        DrawInSourceRect(context, new Rect(38, 38, 180, 186), bounds, 1.0, Stretch.Uniform, () =>
-        {
-            context.FillPath(CrashHorn, _brushCrashHorn!);
-            context.DrawPath(CrashHorn, _penCrashHorn!);
-            context.FillPath(CrashBody, _brushCrashBody!);
-            context.DrawPath(CrashBody, _penCrashBody!);
-            DrawGeometry(context, QuestionGlyph, new Rect(42, 50, 172, 172), _brushCrashGlyph, null, 0.628, Stretch.Uniform);
-        });
+        BeginSourceRect(context, new Rect(38, 38, 180, 186), bounds, 1.0, Stretch.Uniform);
+        context.FillPath(CrashHorn, _brushCrashHorn!);
+        context.DrawPath(CrashHorn, _penCrashHorn!);
+        context.FillPath(CrashBody, _brushCrashBody!);
+        context.DrawPath(CrashBody, _penCrashBody!);
+        DrawGeometry(context, QuestionGlyph, new Rect(42, 50, 172, 172), _brushCrashGlyph, null, 0.628, Stretch.Uniform);
+        context.Restore();
     }
 
     private static void DrawGeometry(IGraphicsContext context, PathGeometry geometry, Rect bounds, IBrush? brush, IPen? pen, double scale, Stretch stretch)
@@ -215,7 +219,7 @@ public sealed class PromptIcon : FrameworkElement
         context.Restore();
     }
 
-    private static void DrawInSourceRect(IGraphicsContext context, Rect sourceBounds, Rect bounds, double scale, Stretch stretch, Action draw)
+    private static void BeginSourceRect(IGraphicsContext context, Rect sourceBounds, Rect bounds, double scale, Stretch stretch)
     {
         var targetRect = new Rect(
             bounds.X + (bounds.Width * (1.0 - scale)) * 0.5,
@@ -229,8 +233,6 @@ public sealed class PromptIcon : FrameworkElement
         context.Translate(tx, ty);
         context.Scale(sx, sy);
         context.Translate(-sourceBounds.X, -sourceBounds.Y);
-        draw();
-        context.Restore();
     }
 
     private static ILinearGradientBrush VertGrad(IGraphicsFactory f, Rect bounds, Color start, Color end)
@@ -249,6 +251,7 @@ public sealed class PromptIcon : FrameworkElement
                 scaleX = dw / gw;
                 scaleY = dh / gh;
                 break;
+
             case Stretch.UniformToFill:
             {
                 double s = Math.Max(dw / gw, dh / gh);
