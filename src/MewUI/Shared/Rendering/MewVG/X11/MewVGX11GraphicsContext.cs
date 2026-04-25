@@ -38,7 +38,7 @@ internal sealed partial class MewVGX11GraphicsContext
         _vg.ResetScissor();
     }
 
-    public override void Dispose()
+    protected override void OnDispose()
     {
         if (_disposed)
         {

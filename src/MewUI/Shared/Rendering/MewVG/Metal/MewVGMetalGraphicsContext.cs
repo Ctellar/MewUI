@@ -108,7 +108,7 @@ internal sealed partial class MewVGMetalGraphicsContext
         _beganFrame = true;
     }
 
-    public override void Dispose()
+    protected override void OnDispose()
     {
         if (_disposed)
         {

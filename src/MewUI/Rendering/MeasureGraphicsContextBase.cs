@@ -20,6 +20,10 @@ public abstract class MeasureGraphicsContextBase : IGraphicsContext
 
     public abstract Size MeasureText(ReadOnlySpan<char> text, IFont font, double maxWidth);
 
+    public virtual void BeginFrame(IRenderTarget target) { }
+
+    public virtual void EndFrame() { }
+
     public virtual void Dispose() { }
 
     // All other interface members are no-ops for measurement contexts.

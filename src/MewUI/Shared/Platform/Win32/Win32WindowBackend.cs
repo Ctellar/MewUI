@@ -1260,7 +1260,7 @@ internal sealed class Win32WindowBackend : IWindowBackend
             }
             else
             {
-                Window.RenderFrame(CreateWin32HdcSurface(hdc));
+                Window.RenderFrame(GetHdcSurface(hdc));
             }
         }
         finally
@@ -1313,7 +1313,7 @@ internal sealed class Win32WindowBackend : IWindowBackend
 
         try
         {
-            Window.RenderFrame(CreateWin32HdcSurface(hdc));
+            Window.RenderFrame(GetHdcSurface(hdc));
             _ = User32.ValidateRect(Handle, 0);
         }
         finally
@@ -1344,40 +1344,31 @@ internal sealed class Win32WindowBackend : IWindowBackend
         _ = presenter.Present(Window, surface, _opacity);
     }
 
-    private Win32HdcSurface CreateWin32HdcSurface(nint hdc)
+    private Win32HdcSurface? _cachedHdcSurface;
+
+    private Win32HdcSurface GetHdcSurface(nint hdc)
     {
         var clientSize = Window.ClientSize;
-        int pixelWidth = (int)Math.Ceiling(clientSize.Width * Window.DpiScale);
-        int pixelHeight = (int)Math.Ceiling(clientSize.Height * Window.DpiScale);
-        pixelWidth = Math.Max(1, pixelWidth);
-        pixelHeight = Math.Max(1, pixelHeight);
-        return new Win32HdcSurface(Handle, hdc, pixelWidth, pixelHeight, Window.DpiScale);
+        int pixelWidth = Math.Max(1, (int)Math.Ceiling(clientSize.Width * Window.DpiScale));
+        int pixelHeight = Math.Max(1, (int)Math.Ceiling(clientSize.Height * Window.DpiScale));
+        double dpiScale = Window.DpiScale > 0 ? Window.DpiScale : 1.0;
+
+        if (_cachedHdcSurface?.Matches(hdc, pixelWidth, pixelHeight, dpiScale) != true)
+        {
+            _cachedHdcSurface = new Win32HdcSurface(Handle, hdc, pixelWidth, pixelHeight, dpiScale, TransparentComposition: false);
+        }
+        return _cachedHdcSurface;
     }
 
-    private sealed class Win32HdcSurface : IWin32HdcWindowSurface
+    private sealed record Win32HdcSurface(nint Hwnd, nint Hdc, int PixelWidth, int PixelHeight, double DpiScale, bool TransparentComposition)
+        : IWin32HdcWindowSurface
     {
         public WindowSurfaceKind Kind => WindowSurfaceKind.Default;
 
         public nint Handle => Hwnd;
 
-        public nint Hwnd { get; }
-
-        public nint Hdc { get; }
-
-        public int PixelWidth { get; }
-
-        public int PixelHeight { get; }
-
-        public double DpiScale { get; }
-
-        public Win32HdcSurface(nint hwnd, nint hdc, int pixelWidth, int pixelHeight, double dpiScale)
-        {
-            Hwnd = hwnd;
-            Hdc = hdc;
-            PixelWidth = pixelWidth;
-            PixelHeight = pixelHeight;
-            DpiScale = dpiScale <= 0 ? 1.0 : dpiScale;
-        }
+        public bool Matches(nint hdc, int pixelWidth, int pixelHeight, double dpiScale) =>
+            Hdc == hdc && PixelWidth == pixelWidth && PixelHeight == pixelHeight && DpiScale == dpiScale;
     }
 
     private void EnsureLayeredStyleIfNeeded()

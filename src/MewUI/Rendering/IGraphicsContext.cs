@@ -9,6 +9,18 @@ namespace Aprillz.MewUI.Rendering
     public interface IGraphicsContext : IDisposable
     {
         /// <summary>
+        /// Starts a new frame for the given render target.
+        /// Must be called before any drawing operations.
+        /// </summary>
+        void BeginFrame(IRenderTarget target);
+
+        /// <summary>
+        /// Ends the current frame. Flushes pending drawing operations.
+        /// The context can be reused by calling <see cref="BeginFrame"/> again.
+        /// </summary>
+        void EndFrame();
+
+        /// <summary>
         /// Gets the current DPI scale factor.
         /// </summary>
         double DpiScale { get; }

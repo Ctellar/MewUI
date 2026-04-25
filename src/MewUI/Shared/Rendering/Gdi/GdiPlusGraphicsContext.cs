@@ -103,7 +103,7 @@ internal sealed class GdiPlusGraphicsContext : GraphicsContextBase
         GdiPlusInterop.EnsureInitialized();
     }
 
-    public override void Dispose()
+    protected override void OnDispose()
     {
         if (_disposed)
         {

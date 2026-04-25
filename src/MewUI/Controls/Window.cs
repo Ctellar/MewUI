@@ -40,6 +40,7 @@ public partial class Window : ContentControl, ILayoutRoundingHost
 
     private IWindowBackend? _backend;
     private WindowRenderTarget? _cachedRenderTarget;
+    private IGraphicsContext? _renderContext;
     private Action? _cachedInvalidateBackend;
     private Action? _cachedLayoutAndRender;
 
@@ -1744,6 +1745,12 @@ public partial class Window : ContentControl, ILayoutRoundingHost
             return;
         }
 
+        // Dispose the cached render context BEFORE the factory tears down its window
+        // resources — backends may still hold references that the factory is about to free.
+        _renderContext?.Dispose();
+        _renderContext = null;
+        _cachedRenderTarget = null;
+
         if (GraphicsFactory is IWindowResourceReleaser releaser)
         {
             releaser.ReleaseWindowResources(windowHandle);
@@ -1837,6 +1844,9 @@ public partial class Window : ContentControl, ILayoutRoundingHost
         var target = _cachedRenderTarget;
         if (target == null || !target.Matches(surface))
         {
+            // Surface or pixel size changed — cached context references stale handles.
+            _renderContext?.Dispose();
+            _renderContext = null;
             target = new WindowRenderTarget(surface);
             _cachedRenderTarget = target;
         }
@@ -1864,12 +1874,21 @@ public partial class Window : ContentControl, ILayoutRoundingHost
         // Update animations before rendering so controls see current values.
         AnimationManager.Instance.Update();
 
-        using var context = GraphicsFactory.CreateContext(target);
+        // Bitmap targets are one-shot (different target instance per call).
+        // Window-targeted contexts are cached so backends can pool per-frame state.
+        bool oneShot = target is IBitmapRenderTarget;
+        IGraphicsContext context = oneShot
+            ? GraphicsFactory.CreateContext(target)
+            : (_renderContext ??= GraphicsFactory.CreateContext(target));
+
+        try
+        {
+            context.BeginFrame(target);
 
         Color clearColor;
         if (AllowsTransparency)
         {
-            // Always clear to transparent black so the output remains premultiplied when composited.
+                // Layered windows use premultiplied alpha compositing.
             clearColor = Color.Transparent;
         }
         else
@@ -1911,6 +1930,14 @@ public partial class Window : ContentControl, ILayoutRoundingHost
 
         if (context is GraphicsContextBase gcb)
             LastFrameStats = new RenderStats(gcb.DrawCallCount, gcb.CullCount);
+        }
+        finally
+        {
+            // EndFrame must run even if rendering throws so backend GPU/COM state is closed.
+            // For oneShot contexts, Dispose must also run to return pooled collections.
+            try { context.EndFrame(); }
+            finally { if (oneShot) context.Dispose(); }
+        }
 
         if (!_firstFrameRenderedRaised)
         {

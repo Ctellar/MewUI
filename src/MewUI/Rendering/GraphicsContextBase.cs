@@ -19,11 +19,39 @@ public abstract class GraphicsContextBase : IGraphicsContext
     private int _drawCalls;
     private int _cullCount;
 
+    /// <summary>Whether a frame is currently active (between BeginFrame and EndFrame).</summary>
+    protected bool IsActive { get; private set; }
+
+    /// <summary>Whether this context has been permanently disposed.</summary>
+    private bool _disposed;
+
     /// <summary>Total draw/fill calls attempted this frame.</summary>
     public int DrawCallCount => _drawCalls;
 
     /// <summary>Draw/fill calls skipped by viewport culling this frame.</summary>
     public int CullCount => _cullCount;
+
+    /// <summary>
+    /// Starts a new frame for the given render target. Resets base cull state
+    /// and calls <see cref="OnBeginFrame"/>. If a frame is already active,
+    /// <see cref="EndFrame"/> is called first.
+    /// </summary>
+    public void BeginFrame(IRenderTarget target)
+    {
+        if (IsActive) EndFrame();
+        _cullRect = InfiniteCullRect;
+        _cullStack.Clear();
+        _drawCalls = 0;
+        _cullCount = 0;
+        IsActive = true;
+        OnBeginFrame(target);
+    }
+
+    /// <summary>
+    /// Called after base state is reset for a new frame.
+    /// Override to perform per-frame initialization (GPU context setup, etc.).
+    /// </summary>
+    protected virtual void OnBeginFrame(IRenderTarget target) { }
 
     /// <summary>
     /// Returns <c>true</c> when <paramref name="bounds"/> is entirely outside the visible area.
@@ -290,10 +318,42 @@ public abstract class GraphicsContextBase : IGraphicsContext
 
     protected abstract void DrawImageCore(IImage image, Rect destRect, Rect sourceRect);
 
-    public virtual void Dispose()
+    /// <summary>
+    /// Ends the current frame. Calls <see cref="OnEndFrame"/> then resets base state.
+    /// The context can be reused via <see cref="BeginFrame"/>.
+    /// </summary>
+    public void EndFrame()
     {
+        if (!IsActive) return;
+        OnEndFrame();
+        IsActive = false;
+        _cullStack.Clear();
+    }
+
+    /// <summary>
+    /// Called before base state is cleared at end of frame.
+    /// Override to perform per-frame cleanup (EndDraw, swap buffers, etc.).
+    /// </summary>
+    protected virtual void OnEndFrame() { }
+
+    /// <summary>
+    /// Permanently releases all resources. Calls <see cref="EndFrame"/> if active,
+    /// then <see cref="OnDispose"/>, then returns pooled collections.
+    /// </summary>
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (IsActive) EndFrame();
+        OnDispose();
         CollectionPool<Stack<Rect>>.Return(_cullStack);
     }
+
+    /// <summary>
+    /// Called during permanent destruction before pooled collections are returned.
+    /// Override to release native resources, return subclass pools, etc.
+    /// </summary>
+    protected virtual void OnDispose() { }
 
     #endregion
 

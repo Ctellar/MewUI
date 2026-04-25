@@ -62,7 +62,7 @@ internal sealed partial class MewVGWin32GraphicsContext
         _vg.ResetScissor();
     }
 
-    public override void Dispose()
+    protected override void OnDispose()
     {
         if (_disposed)
         {

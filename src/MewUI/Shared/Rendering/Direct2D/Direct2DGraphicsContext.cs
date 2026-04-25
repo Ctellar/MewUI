@@ -85,7 +85,7 @@ internal sealed unsafe class Direct2DGraphicsContext : GraphicsContextBase
         DiagLog.Write(msg);
     }
 
-    public override void Dispose()
+    protected override void OnDispose()
     {
         if (_disposed) return;
 
