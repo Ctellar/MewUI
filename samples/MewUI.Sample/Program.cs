@@ -64,24 +64,29 @@ var root = new Window()
                                 .DockBottom(),
 
                             new TabControl()
-                                .VerticalScroll(ScrollMode.Auto)
                                 .TabItems(
                                     new TabItem()
                                         .Header("Controls")
                                         .Content(
-                                            NormalControls()
+                                            new ScrollViewer()
+                                                .VerticalScroll(ScrollMode.Auto)
+                                                .Content(NormalControls())
                                         ),
 
                                     new TabItem()
                                         .Header("Commanding")
                                         .Content(
-                                            CommandingSamples()
+                                            new ScrollViewer()
+                                                .VerticalScroll(ScrollMode.Auto)
+                                                .Content(CommandingSamples())
                                         ),
 
                                     new TabItem()
                                         .Header("Binding")
                                         .Content(
-                                            BindSamples()
+                                            new ScrollViewer()
+                                                .VerticalScroll(ScrollMode.Auto)
+                                                .Content(BindSamples())
                                         )
                                 )
                         )

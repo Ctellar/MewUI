@@ -101,8 +101,6 @@ try
                         new TabControl()
                             .Ref(out tabControl)
                             .Padding(2)
-                            .VerticalScroll(ScrollMode.Disabled)
-                            .HorizontalScroll(ScrollMode.Disabled)
                             .OnSelectionChanged(_ => SyncAddressBarFromSelected())
                     )
             )
