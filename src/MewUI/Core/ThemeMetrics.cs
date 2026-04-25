@@ -16,6 +16,7 @@ public sealed record class ThemeMetrics
         ControlCornerRadius = 4,
         ControlBorderThickness = 1,
         ItemPadding = new Thickness(8, 2, 8, 2),
+        ContainerPadding = new Thickness(8),
         FontFamily = DefaultFontFamily,
         FontSize = 12,
         FontWeight = FontWeight.Normal,
@@ -41,6 +42,11 @@ public sealed record class ThemeMetrics
     /// Gets the default border thickness for standard controls (in DIPs).
     /// </summary>
     public required double ControlBorderThickness { get; init; }
+
+    /// <summary>
+    /// Gets the default padding for container controls (in DIPs).
+    /// </summary>
+    public required Thickness ContainerPadding { get; init; }
 
     /// <summary>
     /// Gets the default padding for list items (in DIPs).

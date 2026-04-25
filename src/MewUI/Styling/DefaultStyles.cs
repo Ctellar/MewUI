@@ -227,7 +227,7 @@ public static class DefaultStyles
             [
                 Setter.Create(Control.BackgroundProperty, t => t.Palette.ContainerBackground),
                 Setter.Create(Control.BorderBrushProperty, t => t.Palette.ControlBorder),
-                Setter.Create(Control.PaddingProperty, new Thickness(8)),
+                Setter.Create(Control.PaddingProperty, t=>t.Metrics.ContainerPadding),
                 Setter.Create(Control.CornerRadiusProperty, t => t.Metrics.ControlCornerRadius),
                 Setter.Create(Control.BorderThicknessProperty, t => t.Metrics.ControlBorderThickness),
                 ..extraSetters,
@@ -246,7 +246,7 @@ public static class DefaultStyles
                 Setter.Create(Control.FontFamilyProperty, t => t.Metrics.FontFamily),
                 Setter.Create(Control.FontSizeProperty, t => t.Metrics.FontSize),
                 Setter.Create(Control.FontWeightProperty, t => t.Metrics.FontWeight),
-                Setter.Create(Control.PaddingProperty, new Thickness(8)),
+                Setter.Create(Control.PaddingProperty, t=>t.Metrics.ContainerPadding),
             ],
         };
     }
@@ -418,7 +418,7 @@ public static class DefaultStyles
             [
                 Setter.Create(Control.BackgroundProperty, t => t.Palette.ControlBackground),
                 Setter.Create(Control.BorderBrushProperty, t => t.Palette.ControlBorder),
-                Setter.Create(Slider.ThumbBrushProperty, t => t.Palette.ControlBackground),
+                Setter.Create(Slider.ThumbBrushProperty, t => t.Palette.AccentText),
                 Setter.Create(Slider.ThumbBorderBrushProperty, t => t.Palette.ControlBorder),
                 Setter.Create(Control.CornerRadiusProperty, t => t.Metrics.ControlCornerRadius),
                 Setter.Create(Control.BorderThicknessProperty, t => t.Metrics.ControlBorderThickness),
@@ -448,7 +448,7 @@ public static class DefaultStyles
                     [
                         Setter.Create(Control.BackgroundProperty, t => t.Palette.ButtonDisabledBackground),
                         Setter.Create(Control.BorderBrushProperty, t => t.Palette.ControlBorder),
-                        Setter.Create(Slider.ThumbBrushProperty, t => t.Palette.DisabledControlBackground),
+                        Setter.Create(Slider.ThumbBrushProperty, t => t.Palette.ButtonDisabledBackground),
                         Setter.Create(Slider.ThumbBorderBrushProperty, t => t.Palette.ControlBorder),
                     ],
                 },
@@ -506,7 +506,7 @@ public static class DefaultStyles
             [
                 Setter.Create(Control.BackgroundProperty, t => t.Palette.ContainerBackground),
                 Setter.Create(Control.BorderBrushProperty, t => t.Palette.ControlBorder),
-                Setter.Create(Control.PaddingProperty, new Thickness(8)),
+                Setter.Create(Control.PaddingProperty, t=>t.Metrics.ContainerPadding),
                 Setter.Create(Control.CornerRadiusProperty, t => t.Metrics.ControlCornerRadius),
                 Setter.Create(Control.BorderThicknessProperty, t => t.Metrics.ControlBorderThickness),
             ],
