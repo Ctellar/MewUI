@@ -64,6 +64,7 @@ internal sealed class MacOSWindowBackend : IWindowBackend
     private long _defaultWindowLevel;
     private ulong _defaultStyleMask;
     private bool? _lastMetalDisplaySyncEnabled;
+    private bool? _lastMetalPresentsWithTransaction;
 
     private bool _imeHasMarkedText;
     private string _imeMarkedText = string.Empty;
@@ -91,6 +92,29 @@ internal sealed class MacOSWindowBackend : IWindowBackend
 
         MacOSWindowInterop.SetMetalLayerDisplaySyncEnabled(_metalLayer, enabled);
         _lastMetalDisplaySyncEnabled = enabled;
+    }
+
+    private void UpdateMetalLayerPresentsWithTransactionIfNeeded()
+    {
+        if (_metalLayer == 0 || _nsView == 0)
+        {
+            return;
+        }
+
+        // presentsWithTransaction = true is required during live-resize so that the Metal
+        // frame is presented inside AppKit's resize CA transaction, preventing the
+        // "scaled cached frame" artifact. Outside of live-resize it must be false:
+        // Apple's documentation states that presentsWithTransaction overrides
+        // displaySyncEnabled — leaving it always-on defeats VSync pacing and causes the
+        // render loop to run at 2x the display refresh rate instead of 1x.
+        bool needed = MacOSWindowInterop.IsViewInLiveResize(_nsView);
+        if (_lastMetalPresentsWithTransaction.HasValue && _lastMetalPresentsWithTransaction.Value == needed)
+        {
+            return;
+        }
+
+        MacOSWindowInterop.SetMetalLayerPresentsWithTransaction(_metalLayer, needed);
+        _lastMetalPresentsWithTransaction = needed;
     }
 
     public MacOSWindowBackend(MacOSPlatformHost host, Window window)
@@ -154,6 +178,7 @@ internal sealed class MacOSWindowBackend : IWindowBackend
         }
 
         UpdateDpiIfNeeded();
+
         _window.PerformLayout();
 
         _shown = true;
@@ -187,6 +212,8 @@ internal sealed class MacOSWindowBackend : IWindowBackend
             const ulong ExtendedStyleMask = 1ul | 2ul | 4ul | 8ul | (1ul << 15);
             MacOSWindowInterop.SetWindowStyleMask(_nsWindow, ExtendedStyleMask);
             MacOSWindowInterop.SetTitlebarForTransparency(_nsWindow, true);
+            // setStyleMask: can alter the frame — restore the intended client size.
+            ApplyRequestedClientSize();
         }
 
         ApplyResolvedStartupPlacement();
@@ -623,6 +650,7 @@ internal sealed class MacOSWindowBackend : IWindowBackend
             const ulong ExtendedStyleMask = 1ul | 2ul | 4ul | 8ul | (1ul << 15);
             MacOSWindowInterop.SetWindowStyleMask(_nsWindow, ExtendedStyleMask);
             MacOSWindowInterop.SetTitlebarForTransparency(_nsWindow, true);
+            ApplyRequestedClientSize();
         }
         else
         {
@@ -857,8 +885,9 @@ internal sealed class MacOSWindowBackend : IWindowBackend
             // Apply extended client area if set before window creation.
             if (_extendTitleBarHeight > 0)
             {
-                const ulong ExtendedStyleMask = 1ul | 2ul | 4ul | 8ul | (1ul << 15);
-                MacOSWindowInterop.SetWindowStyleMask(_nsWindow, ExtendedStyleMask);
+                ulong extMask = 1ul | 2ul | 4ul | (1ul << 15);
+                if (_window.WindowSize.IsResizable) extMask |= 8ul;
+                MacOSWindowInterop.SetWindowStyleMask(_nsWindow, extMask);
                 MacOSWindowInterop.SetTitlebarForTransparency(_nsWindow, true);
             }
         }
@@ -1839,6 +1868,7 @@ internal sealed class MacOSWindowBackend : IWindowBackend
         // If we're rendering right now, avoid scheduling another render from size-change invalidations.
         UpdateClientSizeIfNeeded(requestRender: false);
         UpdateMetalLayerDisplaySyncIfNeeded();
+        UpdateMetalLayerPresentsWithTransactionIfNeeded();
 
         if (_metalLayer != 0)
         {
@@ -1903,6 +1933,7 @@ internal sealed class MacOSWindowBackend : IWindowBackend
         }
 
         UpdateMetalLayerDisplaySyncIfNeeded();
+        UpdateMetalLayerPresentsWithTransactionIfNeeded();
 
         // Avoid re-entrant displayLayer-triggered renders.
         if (Interlocked.Exchange(ref _reshapeRendering, 1) != 0)

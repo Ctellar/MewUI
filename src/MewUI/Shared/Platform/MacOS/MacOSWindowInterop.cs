@@ -197,6 +197,17 @@ internal static unsafe class MacOSWindowInterop
         ObjC.MsgSend_void_nint_bool(metalLayer, SelSetDisplaySyncEnabled, enabled);
     }
 
+    public static void SetMetalLayerPresentsWithTransaction(nint metalLayer, bool enabled)
+    {
+        EnsureInitialized();
+        if (metalLayer == 0 || SelSetPresentsWithTransaction == 0)
+        {
+            return;
+        }
+
+        ObjC.MsgSend_void_nint_bool(metalLayer, SelSetPresentsWithTransaction, enabled);
+    }
+
     public static void SetWindowEnabled(nint window, bool enabled)
     {
         EnsureInitialized();
@@ -1072,9 +1083,11 @@ internal static unsafe class MacOSWindowInterop
             ObjC.MsgSend_void_nint_ulong(layer, SelSetAutoresizingMask, CALayerWidthSizable | CALayerHeightSizable);
         }
 
+        // presentsWithTransaction is managed dynamically by MacOSWindowBackend:
+        // true only during live-resize (fixes jitter), false otherwise (preserves VSync pacing).
         if (SelSetPresentsWithTransaction != 0)
         {
-            ObjC.MsgSend_void_nint_bool(layer, SelSetPresentsWithTransaction, true);
+            ObjC.MsgSend_void_nint_bool(layer, SelSetPresentsWithTransaction, false);
         }
 
         if (SelSetAllowsNextDrawableTimeout != 0)
