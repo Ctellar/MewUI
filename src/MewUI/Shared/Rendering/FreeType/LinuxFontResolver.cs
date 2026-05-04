@@ -54,6 +54,17 @@ internal static class LinuxFontResolver
             return fcPath;
         }
 
+        // Secondary fontconfig: requested family unavailable — try generic
+        // "sans-serif" so the system's configured sans default kicks in.
+        if (!string.Equals(family, "sans-serif", StringComparison.OrdinalIgnoreCase))
+        {
+            fcPath = FontconfigResolve("sans-serif", weight, italic);
+            if (fcPath != null)
+            {
+                return fcPath;
+            }
+        }
+
         // Fallback: filename heuristic.
         string[] roots =
         [
@@ -71,6 +82,42 @@ internal static class LinuxFontResolver
             }
         }
 
+        // Last-resort: any TTF/OTF file in the standard roots. Better to render
+        // text in some font than to silently drop glyph rendering (which makes
+        // SvgText look invisible because IGlyphOutlineFont path isn't taken).
+        foreach (var root in roots)
+        {
+            var anyFont = FindAnyFontFile(root);
+            if (anyFont != null)
+            {
+                return anyFont;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? FindAnyFontFile(string root)
+    {
+        if (!Directory.Exists(root))
+        {
+            return null;
+        }
+        try
+        {
+            foreach (var path in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+            {
+                if (path.EndsWith(".ttf", StringComparison.OrdinalIgnoreCase) ||
+                    path.EndsWith(".otf", StringComparison.OrdinalIgnoreCase))
+                {
+                    return path;
+                }
+            }
+        }
+        catch
+        {
+            // Ignore permission issues.
+        }
         return null;
     }
 
