@@ -2126,17 +2126,17 @@ internal sealed class X11WindowBackend : IWindowBackend
         {
         }
 
-        if (destroyWindow)
-        {
-            try { NativeX11.XDestroyWindow(Display, handle); }
-            catch { }
-        }
-
         try
         {
             Window.ReleaseWindowGraphicsResources(handle);
         }
         catch { }
+
+        if (destroyWindow)
+        {
+            try { NativeX11.XDestroyWindow(Display, handle); }
+            catch { }
+        }
 
         try { _host.UnregisterWindow(handle); } catch { }
         try { Window.DisposeVisualTree(); } catch { }
