@@ -1,5 +1,6 @@
 using System.Numerics;
 
+using Aprillz.MewUI.Rendering.Filters;
 using Aprillz.MewUI.Resources;
 
 namespace Aprillz.MewUI.Rendering;
@@ -8,13 +9,8 @@ namespace Aprillz.MewUI.Rendering;
 /// Factory interface for creating graphics resources.
 /// Allows different graphics backends to be plugged in.
 /// </summary>
-public interface IGraphicsFactory : IDisposable
+public interface IGraphicsFactory : IRenderDevice, IDisposable
 {
-    /// <summary>
-    /// Identifies which built-in backend this factory represents.
-    /// </summary>
-    GraphicsBackend Backend { get; }
-
     /// <summary>Creates a solid-color brush.</summary>
     /// <remarks>
     /// The default DIM returns a <see cref="SolidColorBrush"/> with no backend resources.
@@ -95,6 +91,33 @@ public interface IGraphicsFactory : IDisposable
         => new RadialGradientBrush(center, gradientOrigin, radiusX, radiusY, stops, spreadMethod, units, gradientTransform);
 
     /// <summary>
+    /// Creates an image brush that tiles <paramref name="image"/> to fill a region.
+    /// </summary>
+    /// <param name="image">Source image supplying the tile.</param>
+    /// <param name="sourceRect">Region within <paramref name="image"/> to use as the tile (in DIPs, image coordinates).</param>
+    /// <param name="destinationRect">Destination rectangle for one tile (in DIPs, local coordinates).</param>
+    /// <param name="tileMode">Tile extension mode beyond <paramref name="destinationRect"/>.</param>
+    /// <param name="opacity">Overall opacity multiplier.</param>
+    /// <param name="transform">Optional pre-fill transform applied to the tile geometry.</param>
+    /// <param name="ownedResources">
+    /// Optional disposables whose lifetime is tied to the brush. Use this to transfer ownership
+    /// of an offscreen render target and its <see cref="IImage"/> to the returned brush, so that
+    /// disposing the brush releases them. Disposed in array order when the brush is disposed.
+    /// </param>
+    /// <remarks>
+    /// The caller is responsible for disposing the returned brush.
+    /// </remarks>
+    IImageBrush CreateImageBrush(
+        IImage image,
+        Rect sourceRect,
+        Rect destinationRect,
+        TileMode tileMode = TileMode.Tile,
+        double opacity = 1.0,
+        Matrix3x2? transform = null,
+        IDisposable[]? ownedResources = null)
+        => new ImageBrush(image, sourceRect, destinationRect, tileMode, opacity, transform, ownedResources);
+
+    /// <summary>
     /// Creates a font resource.
     /// </summary>
     IFont CreateFont(string family, double size, FontWeight weight = FontWeight.Normal,
@@ -118,16 +141,12 @@ public interface IGraphicsFactory : IDisposable
     IImage CreateImageFromBytes(byte[] data);
 
     /// <summary>
-    /// Creates an image backed by a versioned pixel source (e.g. <see cref="WriteableBitmap"/>).
-    /// Backends should reflect updates when the source's <see cref="IPixelBufferSource.Version"/> changes.
-    /// </summary>
-    IImage CreateImageFromPixelSource(IPixelBufferSource source);
-
-    /// <summary>
     /// Creates a graphics context for the specified render target.
+    /// The returned context is not yet started; call
+    /// <see cref="IGraphicsContext.BeginFrame"/> before drawing.
     /// </summary>
     /// <param name="target">The render target to draw to.</param>
-    /// <returns>A graphics context for drawing operations.</returns>
+    /// <returns>A new graphics context.</returns>
     IGraphicsContext CreateContext(IRenderTarget target);
 
     /// <summary>
@@ -136,13 +155,50 @@ public interface IGraphicsFactory : IDisposable
     IGraphicsContext CreateMeasurementContext(uint dpi);
 
     /// <summary>
-    /// Creates a bitmap render target for offscreen rendering.
+    /// Creates an executor for evaluating <see cref="ImageFilter"/> graphs. The default
+    /// returns a CPU reference implementation; backends override to return GPU-accelerated
+    /// executors that internally chain CPU fallback for unsupported nodes.
     /// </summary>
-    /// <param name="pixelWidth">Width in pixels.</param>
-    /// <param name="pixelHeight">Height in pixels.</param>
-    /// <param name="dpiScale">DPI scale factor (default 1.0 for 96 DPI).</param>
-    /// <returns>A bitmap render target with platform-appropriate resources.</returns>
-    IBitmapRenderTarget CreateBitmapRenderTarget(int pixelWidth, int pixelHeight, double dpiScale = 1.0);
+    IImageFilterExecutor CreateImageFilterExecutor() => new CpuImageFilterExecutor();
+
+    /// <summary>
+    /// Serializes worker-thread offline render units against UI
+    /// window frames. The MewVG OpenGL backend overrides this to acquire the same
+    /// mutex its UI window <c>BeginFrame</c> / <c>EndFrame</c> path holds, so the
+    /// filter offline render and UI render don't overlap on share-listed GL
+    /// contexts (which races on Intel iGPU producing intermittent black filter
+    /// regions). Backends with thread-free APIs (D2D MULTI_THREADED, Metal, GDI)
+    /// return a no-op disposable.
+    /// </summary>
+    IDisposable AcquireConcurrentRenderUnit() => NoOpScope.Instance;
+
+    /// <summary>
+    /// Reserves any per-thread state needed to perform rendering on the calling thread.
+    /// Required for backends with thread-affine state (OpenGL contexts must be made
+    /// current per thread). Backends with thread-free APIs (D2D MULTI_THREADED, Metal,
+    /// GDI memory DCs) return a no-op disposable.
+    /// <para/>
+    /// Use this from worker threads that call <see cref="IRenderDevice.CreateSurface"/> /
+    /// <see cref="IRenderDevice.CreateContext(IRenderSurface)"/>:
+    /// <code>
+    /// await Task.Run(() =&gt; {
+    ///     using var _ = factory.AcquireBackgroundRenderScope();
+    ///     var surface = factory.CreateSurface(...);
+    ///     using var ctx = factory.CreateContext(surface);
+    ///     // draw...
+    /// });
+    /// </code>
+    /// The MewVG (OpenGL) backend overrides this to activate a hidden-window worker
+    /// HGLRC whose textures are share-listed with all window contexts; the resulting
+    /// FBO texture is sample-able by the UI thread without readback.
+    /// </summary>
+    IDisposable AcquireBackgroundRenderScope() => NoOpScope.Instance;
+
+    private sealed class NoOpScope : IDisposable
+    {
+        public static readonly NoOpScope Instance = new();
+        public void Dispose() { }
+    }
 }
 
 /// <summary>
