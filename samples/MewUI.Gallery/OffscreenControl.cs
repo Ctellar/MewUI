@@ -10,7 +10,7 @@ public abstract class OffscreenControl : Control
     private IImage? _view;
 
     private int _surfaceWidth, _surfaceHeight;
-    private double _surfaceDpi;
+    private double _surfaceDpiScale;
     private bool _dirty = true;
 
     protected abstract void RenderOffscreen(IGraphicsContext context, Rect bounds);
@@ -23,11 +23,11 @@ public abstract class OffscreenControl : Control
 
     private void EnsureSurface()
     {
-        double dpi = GetDpi() / 96.0;
-        int pixelWidth = Math.Max(1, (int)Math.Ceiling(ActualWidth * dpi));
-        int pixelHeight = Math.Max(1, (int)Math.Ceiling(ActualHeight * dpi));
+        double dpiScale = GetDpi() / 96.0;
+        int pixelWidth = Math.Max(1, (int)Math.Ceiling(ActualWidth * dpiScale));
+        int pixelHeight = Math.Max(1, (int)Math.Ceiling(ActualHeight * dpiScale));
 
-        if (_surface is not null && _surfaceWidth == pixelWidth && _surfaceHeight == pixelHeight && _surfaceDpi == dpi)
+        if (_surface is not null && _surfaceWidth == pixelWidth && _surfaceHeight == pixelHeight && _surfaceDpiScale == dpiScale)
         {
             return;
         }
@@ -37,13 +37,13 @@ public abstract class OffscreenControl : Control
         _surface?.Dispose();
 
         var factory = GetGraphicsFactory();
-        _surface = factory.CreateSurface(RenderSurfaceDescriptor.Offscreen(pixelWidth, pixelHeight, dpi));
+        _surface = factory.CreateSurface(RenderSurfaceDescriptor.Offscreen(pixelWidth, pixelHeight, dpiScale));
         _view = factory.CreateImageView(_surface);
         _context = factory.CreateContext(_surface);
 
         _surfaceWidth = pixelWidth;
         _surfaceHeight = pixelHeight;
-        _surfaceDpi = dpi;
+        _surfaceDpiScale = dpiScale;
 
         _dirty = true;
     }
