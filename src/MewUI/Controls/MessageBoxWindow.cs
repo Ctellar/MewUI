@@ -195,10 +195,10 @@ public sealed class MessageBoxWindow : Window
 
     private void AddButtons(StackPanel panel)
     {
-        // Sort by platform convention.
+        // Sort by platform convention. Should be refactored.
         // Windows: Accept → Destructive → Reject (left to right)
         // macOS:   Reject → Destructive → Accept (left to right, primary on right)
-        var ordered = OperatingSystem.IsMacOS()
+        var ordered = OperatingSystem.IsMacOS() 
             ? _buttons.OrderBy(b => b.Role switch
             {
                 MessageButtonRole.Reject => 0,
