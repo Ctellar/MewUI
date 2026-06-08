@@ -768,6 +768,7 @@ internal sealed class X11WindowBackend : IWindowBackend
 
         ApplyOpacity();
         ApplyResizeMode();
+        ApplyToolWindowHints();
 
         _inputMethod = X11InputMethodFactory.Create(Display, Handle);
         if (_inputMethod is XimInputMethod xim && xim.TryGetFilterEvents(out var imeFilterEvents))
@@ -2515,21 +2516,67 @@ internal sealed class X11WindowBackend : IWindowBackend
         {
             NativeX11.XSetTransientForHint(Display, Handle, ownerHandle);
 
-            // Best-effort EWMH modal hint.
-            var netWmState = NativeX11.XInternAtom(Display, "_NET_WM_STATE", false);
-            var netWmStateModal = NativeX11.XInternAtom(Display, "_NET_WM_STATE_MODAL", false);
-            if (netWmState != 0 && netWmStateModal != 0)
+            // EWMH modal hint — ONLY for true modal dialogs (ShowDialog). A plain owned window (Show(owner))
+            // must not be modal, otherwise the WM/compositor (e.g. XWayland) dims the owner and treats it as a
+            // dialog. Setting transient-for alone is enough to keep an owned window above its owner. Best-effort.
+            if (Window.IsDialogWindow)
             {
-                unsafe
+                var netWmState = NativeX11.XInternAtom(Display, "_NET_WM_STATE", false);
+                var netWmStateModal = NativeX11.XInternAtom(Display, "_NET_WM_STATE_MODAL", false);
+                if (netWmState != 0 && netWmStateModal != 0)
                 {
-                    nint data = netWmStateModal;
-                    NativeX11.XChangeProperty(Display, Handle, netWmState, type: 4 /*ATOM*/, format: 32, mode: 0 /*Replace*/, (nint)(&data), nelements: 1);
+                    unsafe
+                    {
+                        nint data = netWmStateModal;
+                        NativeX11.XChangeProperty(Display, Handle, netWmState, type: 4 /*ATOM*/, format: 32, mode: 0 /*Replace*/, (nint)(&data), nelements: 1);
+                    }
                 }
             }
         }
         catch
         {
             // Best-effort.
+        }
+    }
+
+    // Marks the window as a floating tool/utility window: _NET_WM_WINDOW_TYPE_UTILITY (thin WM decoration) +
+    // skip-taskbar. Set as properties before the window is mapped (a _NET_WM_STATE ClientMessage only applies
+    // once the WM manages the window). Owner/transient is set separately via SetOwner. Best-effort — WMs vary
+    // in utility-type support, degrading to a normal (skip-taskbar) window. Mutually exclusive with transparency.
+    private void ApplyToolWindowHints()
+    {
+        if (Display == 0 || Handle == 0 || !Window.IsToolWindow || _allowsTransparency)
+        {
+            return;
+        }
+
+        try
+        {
+            var windowType = NativeX11.XInternAtom(Display, "_NET_WM_WINDOW_TYPE", false);
+            var windowTypeUtility = NativeX11.XInternAtom(Display, "_NET_WM_WINDOW_TYPE_UTILITY", false);
+            if (windowType != 0 && windowTypeUtility != 0)
+            {
+                unsafe
+                {
+                    nint data = windowTypeUtility;
+                    NativeX11.XChangeProperty(Display, Handle, windowType, type: 4 /*ATOM*/, format: 32, mode: 0 /*Replace*/, (nint)(&data), nelements: 1);
+                }
+            }
+
+            var netWmState = NativeX11.XInternAtom(Display, "_NET_WM_STATE", false);
+            var skipTaskbar = NativeX11.XInternAtom(Display, "_NET_WM_STATE_SKIP_TASKBAR", false);
+            if (netWmState != 0 && skipTaskbar != 0)
+            {
+                unsafe
+                {
+                    nint data = skipTaskbar;
+                    NativeX11.XChangeProperty(Display, Handle, netWmState, type: 4 /*ATOM*/, format: 32, mode: 0 /*Replace*/, (nint)(&data), nelements: 1);
+                }
+            }
+        }
+        catch
+        {
+            // Best-effort — WMs vary in utility-type support.
         }
     }
 

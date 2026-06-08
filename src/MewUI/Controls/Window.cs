@@ -466,6 +466,26 @@ public partial class Window : ContentControl, ILayoutRoundingHost
     internal bool IsAlertWindow { get; set; }
 
     /// <summary>
+    /// Gets or sets whether this is a floating tool/utility window: a thin native title bar with move and
+    /// close only (no minimize/maximize), excluded from the taskbar, floating above its <see cref="Owner"/>.
+    /// Must be set BEFORE <see cref="Show(Window?)"/> (the native window is built from it); setting it
+    /// after the window is shown throws. Ignored when <see cref="AllowsTransparency"/> is true (which removes
+    /// the chrome entirely).
+    /// </summary>
+    public bool IsToolWindow
+    {
+        get;
+        set
+        {
+            if (_backend is not null)
+            {
+                throw new InvalidOperationException("IsToolWindow must be set before the window is shown.");
+            }
+            field = value;
+        }
+    }
+
+    /// <summary>
     /// Gets or sets the initial window placement behavior.
     /// Must be set before <see cref="Show"/> is called.
     /// </summary>
