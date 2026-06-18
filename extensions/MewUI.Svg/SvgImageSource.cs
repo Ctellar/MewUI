@@ -13,7 +13,6 @@ namespace Aprillz.MewUI.Svg;
 /// and can be recolored via <see cref="Tint"/> for monochrome icons. <see cref="CreateImage"/> is a
 /// raster fallback for consumers that need pixels.
 /// </summary>
-[System.CLSCompliant(false)] // derives from MewObject (the MewProperty base), which is not CLS-compliant
 public sealed class SvgImageSource : MewObject, IVectorImageSource, INotifyImageChanged, IDisposable
 {
     /// <summary>Recolors the SVG fill (monochrome icons). Null keeps the source colors.</summary>
