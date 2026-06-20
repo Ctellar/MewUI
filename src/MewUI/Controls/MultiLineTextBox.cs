@@ -25,12 +25,23 @@ public sealed class MultiLineTextBox : TextBase
     private readonly ScrollBar _vBar;
     private readonly ScrollBar _hBar;
 
+    /// <summary>
+    /// Tracks colored text segments in document coordinates.
+    /// Segments are kept sorted by Start and non-overlapping.
+    /// </summary>
+    private readonly List<ColoredSegment> _coloredSegments = new();
+
     private bool _syncingText;
     private double _lineHeight;
 
     private int _pendingViewAnchorIndex = -1;
     private double _pendingViewAnchorYOffset;
     private double _pendingViewAnchorXOffset;
+
+    /// <summary>
+    /// Describes a run of text with an explicit color.
+    /// </summary>
+    private readonly record struct ColoredSegment(int Start, int Length, Color Color);
 
     static MultiLineTextBox()
     {
@@ -238,6 +249,7 @@ public sealed class MultiLineTextBox : TextBase
         _textView.Reset();
         _wrapVirtualizer.Reset();
         _lineWidthEstimator.Reset();
+        _coloredSegments.Clear();
         base.SetTextCore(normalizedText);
         RebuildLineStartsFromDocument();
         EnforceWrapLineLimit();
@@ -246,6 +258,47 @@ public sealed class MultiLineTextBox : TextBase
     protected override void ApplyInsertForEdit(int index, string text) => ApplyInsert(index, text);
 
     protected override void ApplyRemoveForEdit(int index, int length) => ApplyRemove(index, length);
+
+    private protected override ColoredRun[]? CaptureDeleteColors(int start, int length)
+    {
+        if (_coloredSegments.Count == 0)
+        {
+            return null;
+        }
+
+        var runs = new List<ColoredRun>();
+        int end = start + length;
+        foreach (var seg in _coloredSegments)
+        {
+            int segEnd = seg.Start + seg.Length;
+            if (segEnd <= start) continue;
+            if (seg.Start >= end) break;
+
+            int overlapStart = Math.Max(seg.Start, start);
+            int overlapEnd = Math.Min(segEnd, end);
+            int offset = overlapStart - start;
+            int overlapLen = overlapEnd - overlapStart;
+            if (overlapLen > 0)
+            {
+                runs.Add(new ColoredRun(offset, overlapLen, seg.Color));
+            }
+        }
+
+        return runs.Count > 0 ? runs.ToArray() : null;
+    }
+
+    private protected override void RestoreDeleteColors(int index, ColoredRun[]? runs)
+    {
+        if (runs == null || runs.Length == 0)
+        {
+            return;
+        }
+
+        foreach (var run in runs)
+        {
+            AddOrMergeColoredSegment(index + run.Offset, run.Length, run.Color);
+        }
+    }
 
     protected override void OnEditCommitted()
     {
@@ -545,7 +598,7 @@ public sealed class MultiLineTextBox : TextBase
     {
         double lineHeight = GetLineHeight();
         int lineCount = Math.Max(1, _lineStarts.Count);
-        var textColor = Foreground;
+        var defaultTextColor = IsEffectivelyEnabled ? Foreground : theme.Palette.DisabledText;
 
         if (!WrapEnabled)
         {
@@ -586,7 +639,7 @@ public sealed class MultiLineTextBox : TextBase
 
                 var lineRect = new Rect(drawX, y, 1_000_000, lineHeight);
                 RenderSelectionForRow(context, font, theme, start, startCol, visible, y, drawX, IsSelectionActive);
-                context.DrawText(visible, lineRect, font, textColor, TextAlignment.Left, TextAlignment.Top, TextWrapping.NoWrap);
+                DrawColoredTextSpan(context, visible, start + startCol, drawX, y, lineHeight, font, defaultTextColor, cache);
 
                 // Composition underline (attribute-based)
                 if (IsComposing && CompositionLength > 0)
@@ -601,7 +654,7 @@ public sealed class MultiLineTextBox : TextBase
                         int attrOffset = (cs + start) - compStart;
                         double baseX = contentBounds.X - HorizontalOffset;
                         TextBoxView.DrawSegmentedCompositionUnderline(
-                            cache, context, font, ulY, textColor,
+                            cache, context, font, ulY, defaultTextColor,
                             CompositionAttributes, attrOffset, ce - cs,
                             cs, baseX);
                     }
@@ -651,8 +704,13 @@ public sealed class MultiLineTextBox : TextBase
             var layout = _wrapVirtualizer.GetWrapLayout(lineIndex, fullLine, wrapWidth, measure.Context, measure.Font);
 
             MultiLineTextView.CachedLineMeasure? lineMeasure = null;
-            if ((canDrawCaret && CaretPosition >= lineStart && CaretPosition <= lineEnd) ||
-                (canDrawSelection && selection.start < lineEnd && selection.end > lineStart))
+            bool needsLineMeasure = (canDrawCaret && CaretPosition >= lineStart && CaretPosition <= lineEnd) ||
+                (canDrawSelection && selection.start < lineEnd && selection.end > lineStart);
+            if (!needsLineMeasure && _coloredSegments.Count > 0)
+            {
+                needsLineMeasure = HasColoredSegmentsInRange(lineStart, lineEnd);
+            }
+            if (needsLineMeasure)
             {
                 lineMeasure = _textView.EnsureLineMeasureCache(lineIndex, lineStart, lineEnd, measure.Context, measure.Font);
             }
@@ -665,7 +723,7 @@ public sealed class MultiLineTextBox : TextBase
 
                 var rowRect = new Rect(contentBounds.X, yWrap, wrapWidth, lineHeight);
                 RenderSelectionForRow(context, font, theme, lineStart, segStart, rowText, yWrap, contentBounds.X, IsSelectionActive, lineMeasure);
-                context.DrawText(rowText, rowRect, font, textColor, TextAlignment.Left, TextAlignment.Top, TextWrapping.NoWrap);
+                DrawColoredTextSpan(context, rowText, lineStart + segStart, contentBounds.X, yWrap, lineHeight, font, defaultTextColor, lineMeasure);
 
                 // Composition underline (wrap mode, attribute-based)
                 if (IsComposing && CompositionLength > 0)
@@ -681,7 +739,7 @@ public sealed class MultiLineTextBox : TextBase
                         int attrOffset = (cs + lineStart) - compStart;
                         double segPrefixW = MultiLineTextView.GetPrefixWidthCached(lineMeasure, segStart, measure.Context, measure.Font);
                         TextBoxView.DrawSegmentedCompositionUnderline(
-                            lineMeasure, measure.Context, measure.Font, ulY, textColor,
+                            lineMeasure, measure.Context, measure.Font, ulY, defaultTextColor,
                             CompositionAttributes, attrOffset, ce - cs,
                             cs, contentBounds.X - segPrefixW);
                     }
@@ -1143,6 +1201,13 @@ public sealed class MultiLineTextBox : TextBase
         index = ApplyInsertCore(index, text.AsSpan());
         UpdateLineStartsOnInsert(index, text);
 
+        // Adjust colored segments: shift segments after insert point, and record new colored segment if applicable.
+        AdjustColoredSegmentsForInsert(index, text.Length);
+        if (_coloredInsertColor is { } color)
+        {
+            AddOrMergeColoredSegment(index, text.Length, color);
+        }
+
         CaretPosition = Math.Clamp(CaretPosition, 0, GetTextLengthCore());
     }
 
@@ -1161,6 +1226,7 @@ public sealed class MultiLineTextBox : TextBase
         if (removed > 0)
         {
             UpdateLineStartsOnRemove(index, removed);
+            AdjustColoredSegmentsForRemove(index, removed);
         }
 
         CaretPosition = Math.Clamp(CaretPosition, 0, GetTextLengthCore());
@@ -1235,6 +1301,300 @@ public sealed class MultiLineTextBox : TextBase
         }
         return lo;
     }
+
+    #region Colored Segment Management
+
+    private void AdjustColoredSegmentsForInsert(int index, int length)
+    {
+        for (int i = 0; i < _coloredSegments.Count; i++)
+        {
+            var seg = _coloredSegments[i];
+            if (seg.Start >= index)
+            {
+                _coloredSegments[i] = new ColoredSegment(seg.Start + length, seg.Length, seg.Color);
+            }
+            else if (seg.Start + seg.Length > index)
+            {
+                // Insert splits this segment — keep the left part, insert the right part shifted.
+                // The inserted text itself has no color (unless _coloredInsertColor is set, handled separately).
+                int leftLen = index - seg.Start;
+                int rightLen = seg.Length - leftLen;
+                _coloredSegments[i] = new ColoredSegment(seg.Start, leftLen, seg.Color);
+                _coloredSegments.Insert(i + 1, new ColoredSegment(index + length, rightLen, seg.Color));
+                i++; // skip the newly inserted right part
+            }
+        }
+    }
+
+    private void AdjustColoredSegmentsForRemove(int index, int length)
+    {
+        int end = index + length;
+        for (int i = _coloredSegments.Count - 1; i >= 0; i--)
+        {
+            var seg = _coloredSegments[i];
+            int segEnd = seg.Start + seg.Length;
+
+            if (segEnd <= index)
+            {
+                // Segment is entirely before the removed range — no change.
+                continue;
+            }
+
+            if (seg.Start >= end)
+            {
+                // Segment is entirely after the removed range — shift left.
+                _coloredSegments[i] = new ColoredSegment(seg.Start - length, seg.Length, seg.Color);
+                continue;
+            }
+
+            // Segment overlaps the removed range.
+            if (seg.Start >= index && segEnd <= end)
+            {
+                // Segment is entirely inside the removed range — remove it.
+                _coloredSegments.RemoveAt(i);
+            }
+            else if (seg.Start < index && segEnd > end)
+            {
+                // Segment spans the removed range — truncate by removing the middle.
+                int newLen = seg.Length - length;
+                _coloredSegments[i] = new ColoredSegment(seg.Start, newLen, seg.Color);
+            }
+            else if (seg.Start < index)
+            {
+                // Segment overlaps from the left — truncate the right part.
+                int newLen = index - seg.Start;
+                _coloredSegments[i] = new ColoredSegment(seg.Start, newLen, seg.Color);
+            }
+            else
+            {
+                // Segment overlaps from the right — shift start left, truncate.
+                int overlap = segEnd - index;
+                int newLen = seg.Length - overlap;
+                _coloredSegments[i] = new ColoredSegment(index, newLen, seg.Color);
+            }
+        }
+    }
+
+    private void AddOrMergeColoredSegment(int start, int length, Color color)
+    {
+        if (length <= 0)
+        {
+            return;
+        }
+
+        int end = start + length;
+
+        // Find insertion point: first segment whose Start >= start.
+        int idx = 0;
+        while (idx < _coloredSegments.Count && _coloredSegments[idx].Start < start)
+        {
+            idx++;
+        }
+
+        // Try to merge with the previous segment (adjacent, same color).
+        bool merged = false;
+        if (idx > 0)
+        {
+            var prev = _coloredSegments[idx - 1];
+            if (prev.Color == color && prev.Start + prev.Length == start)
+            {
+                // Extend previous segment to cover the new text.
+                _coloredSegments[idx - 1] = new ColoredSegment(prev.Start, prev.Length + length, color);
+                start = prev.Start;
+                length = prev.Length + length;
+                end = start + length;
+                idx--; // The merged segment is now at idx.
+                merged = true;
+            }
+        }
+
+        if (!merged)
+        {
+            _coloredSegments.Insert(idx, new ColoredSegment(start, length, color));
+        }
+
+        // Try to merge with the following segment (adjacent, same color).
+        if (idx + 1 < _coloredSegments.Count)
+        {
+            var next = _coloredSegments[idx + 1];
+            if (next.Color == color && next.Start == end)
+            {
+                // Extend the segment at idx to cover the next segment as well.
+                _coloredSegments[idx] = new ColoredSegment(start, length + next.Length, color);
+                _coloredSegments.RemoveAt(idx + 1);
+            }
+        }
+    }
+
+    #endregion
+
+    /// <summary>
+    /// Draws a span of text, splitting it by colored segments so each run uses its assigned color.
+    /// When the control is disabled, <paramref name="defaultColor"/> is already set to the disabled text color.
+    /// </summary>
+    private void DrawColoredTextSpan(
+        IGraphicsContext context,
+        ReadOnlySpan<char> text,
+        int docStart,
+        double drawX,
+        double y,
+        double lineHeight,
+        IFont font,
+        Color defaultColor,
+        MultiLineTextView.CachedLineMeasure? cache)
+    {
+        if (text.IsEmpty)
+        {
+            return;
+        }
+
+        // Fast path: no colored segments or control is disabled — draw all with default color.
+        if (_coloredSegments.Count == 0 || !IsEffectivelyEnabled)
+        {
+            var lineRect = new Rect(drawX, y, 1_000_000, lineHeight);
+            context.DrawText(text, lineRect, font, defaultColor, TextAlignment.Left, TextAlignment.Top, TextWrapping.NoWrap);
+            return;
+        }
+
+        int docEnd = docStart + text.Length;
+        int segIdx = FindFirstSegmentIndex(docStart);
+        int pos = 0;
+        char prevLastChar = '\0';
+        Span<char> kerningBuf = stackalloc char[2]; // reused for kerning measurement
+
+        while (pos < text.Length)
+        {
+            int docPos = docStart + pos;
+            Color runColor = defaultColor;
+            int runEnd = text.Length;
+
+            // Determine color and the end of this run based on colored segments.
+            if (segIdx < _coloredSegments.Count)
+            {
+                var seg = _coloredSegments[segIdx];
+                int segEnd = seg.Start + seg.Length;
+
+                if (seg.Start < docEnd && segEnd > docPos)
+                {
+                    if (docPos >= seg.Start)
+                    {
+                        // Inside a colored segment.
+                        runColor = seg.Color;
+                        runEnd = Math.Min(runEnd, segEnd - docStart);
+                    }
+                    else
+                    {
+                        // Before the next colored segment — use default color up to its start.
+                        runEnd = Math.Min(runEnd, seg.Start - docStart);
+                    }
+                }
+            }
+
+            // Draw this color run.
+            int runLen = runEnd - pos;
+            if (runLen > 0)
+            {
+                var runSpan = text.Slice(pos, runLen);
+                double runX = drawX;
+                if (pos > 0 && cache != null)
+                {
+                    // GetPrefixWidthCached uses indices relative to the cache's text.
+                    int relDocStart = docStart - cache.Start;
+                    int relPos = docStart + pos - cache.Start;
+                    double prefixW = MultiLineTextView.GetPrefixWidthCached(cache, relPos, context, font);
+                    double basePrefixW = MultiLineTextView.GetPrefixWidthCached(cache, relDocStart, context, font);
+                    runX = drawX - basePrefixW + prefixW;
+
+                    // Kerning correction between adjacent runs: when text is split across
+                    // multiple DrawText calls, the inter-character kerning between the last
+                    // char of the previous run and the first char of this run is lost.
+                    // Compensate so the visual spacing matches a single DrawText call.
+                    if (prevLastChar != '\0')
+                    {
+                        char firstChar = runSpan[0];
+                        kerningBuf[0] = prevLastChar;
+                        kerningBuf[1] = firstChar;
+                        double pairW = context.MeasureText(kerningBuf, font).Width;
+                        double prevW = context.MeasureText(kerningBuf.Slice(0, 1), font).Width;
+                        kerningBuf[0] = firstChar;
+                        double firstW = context.MeasureText(kerningBuf.Slice(0, 1), font).Width;
+                        double kerning = pairW - prevW - firstW;
+                        runX += kerning;
+                    }
+                }
+
+                var lineRect = new Rect(runX, y, 1_000_000, lineHeight);
+                context.DrawText(runSpan, lineRect, font, runColor, TextAlignment.Left, TextAlignment.Top, TextWrapping.NoWrap);
+
+                prevLastChar = runSpan[^1];
+            }
+
+            pos = runEnd;
+
+            // Advance segment index past segments that end at or before the current position.
+            while (segIdx < _coloredSegments.Count &&
+                   _coloredSegments[segIdx].Start + _coloredSegments[segIdx].Length <= docStart + pos)
+            {
+                segIdx++;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Binary search for the first colored segment that ends after <paramref name="docPos"/>.
+    /// </summary>
+    private int FindFirstSegmentIndex(int docPos)
+    {
+        int lo = 0;
+        int hi = _coloredSegments.Count;
+        while (lo < hi)
+        {
+            int mid = (lo + hi) / 2;
+            if (_coloredSegments[mid].Start + _coloredSegments[mid].Length <= docPos)
+            {
+                lo = mid + 1;
+            }
+            else
+            {
+                hi = mid;
+            }
+        }
+        return lo;
+    }
+
+    /// <summary>
+    /// Returns true if any colored segment overlaps the document range [start, end).
+    /// </summary>
+    private bool HasColoredSegmentsInRange(int start, int end)
+    {
+        if (_coloredSegments.Count == 0)
+        {
+            return false;
+        }
+
+        // Binary search for the first segment that could overlap.
+        int lo = 0;
+        int hi = _coloredSegments.Count - 1;
+        while (lo <= hi)
+        {
+            int mid = (lo + hi) / 2;
+            var seg = _coloredSegments[mid];
+            if (seg.Start + seg.Length <= start)
+            {
+                lo = mid + 1;
+            }
+            else if (seg.Start >= end)
+            {
+                hi = mid - 1;
+            }
+            else
+            {
+                return true; // Overlap found.
+            }
+        }
+        return false;
+    }
+
     private readonly record struct WrapLayout(int Version, double Width, int[] SegmentStarts);
     private readonly record struct WrapAnchor(int LineIndex, int StartRow);
 

@@ -34,6 +34,12 @@ public abstract partial class TextBase : Control, ITextCompositionClient, ITextI
     private readonly TextEditorCore _editor;
     private readonly TextViewState _view = new();
 
+    /// <summary>
+    /// Set by <see cref="AppendText"/> or undo/redo before <see cref="ApplyInsertForEdit"/> is called.
+    /// Cleared after the insert completes.
+    /// </summary>
+    private protected Color? _coloredInsertColor;
+
     private bool _suppressTextInputNewline;
     private bool _suppressTextInputTab;
 
@@ -74,7 +80,10 @@ public abstract partial class TextBase : Control, ITextCompositionClient, ITextI
             GetTextSubstringCore,
             ApplyInsertForEdit,
             ApplyRemoveForEdit,
-            OnEditCommitted);
+            OnEditCommitted,
+            color => _coloredInsertColor = color,
+            CaptureDeleteColors,
+            RestoreDeleteColors);
     }
 
     /// <summary>
@@ -137,7 +146,10 @@ public abstract partial class TextBase : Control, ITextCompositionClient, ITextI
     /// Appends text to the end of the document without allocating a full new <see cref="Text"/> string.
     /// This is the preferred way to build large logs in a MultiLineTextBox.
     /// </summary>
-    public void AppendText(string? text, bool scrollToCaret = false)
+    /// <param name="text">The text to append.</param>
+    /// <param name="color">Optional color for the appended text. Use <see langword="default"/> to use the control's Foreground color.</param>
+    /// <param name="scrollToCaret">If true, scrolls the view so the caret (end of document) is visible.</param>
+    public void AppendText(string? text, Color color = default, bool scrollToCaret = false)
     {
         var normalized = NormalizeText(text ?? string.Empty);
         if (normalized.Length == 0)
@@ -147,7 +159,16 @@ public abstract partial class TextBase : Control, ITextCompositionClient, ITextI
 
         // Append at end (WPF-style). We intentionally move the caret to the end so ScrollToCaret works.
         _editor.SetCaretAndSelection(GetTextLengthCore(), extendSelection: false);
-        _editor.InsertTextAtCaretForEdit(normalized);
+        Color? colorParam = color == default ? null : color;
+        _coloredInsertColor = colorParam;
+        try
+        {
+            _editor.InsertTextAtCaretForEdit(normalized, colorParam);
+        }
+        finally
+        {
+            _coloredInsertColor = null;
+        }
 
         if (scrollToCaret)
         {
@@ -1289,6 +1310,18 @@ public abstract partial class TextBase : Control, ITextCompositionClient, ITextI
     protected virtual void ApplyInsertForEdit(int index, string text) => InsertIntoDocument(index, text.AsSpan());
 
     protected virtual void ApplyRemoveForEdit(int index, int length) => RemoveFromDocument(index, length);
+
+    /// <summary>
+    /// Captures colored runs in the given document range (start, length).
+    /// Override in MultiLineTextBox to preserve color info for undo of delete operations.
+    /// </summary>
+    private protected virtual ColoredRun[]? CaptureDeleteColors(int start, int length) => null;
+
+    /// <summary>
+    /// Restores colored runs at the given document position.
+    /// Override in MultiLineTextBox to restore color info when undoing a delete.
+    /// </summary>
+    private protected virtual void RestoreDeleteColors(int index, ColoredRun[]? runs) { }
 
     protected virtual void OnEditCommitted() => NotifyTextChanged();
 

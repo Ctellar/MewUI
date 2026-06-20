@@ -1,6 +1,13 @@
 using System.Globalization;
+using Aprillz.MewUI.Rendering;
 
 namespace Aprillz.MewUI.Controls.Text;
+
+/// <summary>
+/// Describes a colored run within a range, with offset relative to the range start.
+/// Used to preserve color info across undo/redo of delete operations.
+/// </summary>
+internal readonly record struct ColoredRun(int Offset, int Length, Color Color);
 
 internal sealed class TextEditorCore
 {
@@ -10,6 +17,9 @@ internal sealed class TextEditorCore
     private readonly Action<int, string> _applyInsert;
     private readonly Action<int, int> _applyRemove;
     private readonly Action _onEditCommitted;
+    private readonly Action<Color?>? _setPendingInsertColor;
+    private readonly Func<int, int, ColoredRun[]?>? _captureDeleteColors;
+    private readonly Action<int, ColoredRun[]?>? _restoreDeleteColors;
 
     private int _selectionStart;
     private int _selectionLength;
@@ -24,7 +34,10 @@ internal sealed class TextEditorCore
         Func<int, int, string> getSubstring,
         Action<int, string> applyInsert,
         Action<int, int> applyRemove,
-        Action onEditCommitted)
+        Action onEditCommitted,
+        Action<Color?>? setPendingInsertColor = null,
+        Func<int, int, ColoredRun[]?>? captureDeleteColors = null,
+        Action<int, ColoredRun[]?>? restoreDeleteColors = null)
     {
         _getLength = getLength ?? throw new ArgumentNullException(nameof(getLength));
         _getChar = getChar ?? throw new ArgumentNullException(nameof(getChar));
@@ -32,6 +45,9 @@ internal sealed class TextEditorCore
         _applyInsert = applyInsert ?? throw new ArgumentNullException(nameof(applyInsert));
         _applyRemove = applyRemove ?? throw new ArgumentNullException(nameof(applyRemove));
         _onEditCommitted = onEditCommitted ?? throw new ArgumentNullException(nameof(onEditCommitted));
+        _setPendingInsertColor = setPendingInsertColor;
+        _captureDeleteColors = captureDeleteColors;
+        _restoreDeleteColors = restoreDeleteColors;
     }
 
     public int CaretPosition { get; private set; }
@@ -398,8 +414,9 @@ internal sealed class TextEditorCore
         }
 
         string deleted = _getSubstring(deleteFrom, deleteLen);
+        var capturedColors = _captureDeleteColors?.Invoke(deleteFrom, deleteLen);
         _applyRemove(deleteFrom, deleteLen);
-        RecordEdit(new Edit(EditKind.Delete, deleteFrom, deleted));
+        RecordEdit(new Edit(EditKind.Delete, deleteFrom, deleted, DeleteColors: capturedColors));
         SetCaretAndSelection(deleteFrom, false);
         _onEditCommitted();
     }
@@ -437,8 +454,9 @@ internal sealed class TextEditorCore
         }
 
         string deleted = _getSubstring(CaretPosition, deleteLen);
+        var capturedColors = _captureDeleteColors?.Invoke(CaretPosition, deleteLen);
         _applyRemove(CaretPosition, deleteLen);
-        RecordEdit(new Edit(EditKind.Delete, CaretPosition, deleted));
+        RecordEdit(new Edit(EditKind.Delete, CaretPosition, deleted, DeleteColors: capturedColors));
         SetCaretAndSelection(CaretPosition, false);
         _onEditCommitted();
     }
@@ -456,8 +474,9 @@ internal sealed class TextEditorCore
         int length = end - start;
         string deleted = _getSubstring(start, length);
 
+        var capturedColors = _captureDeleteColors?.Invoke(start, length);
         _applyRemove(start, length);
-        RecordEdit(new Edit(EditKind.Delete, start, deleted));
+        RecordEdit(new Edit(EditKind.Delete, start, deleted, DeleteColors: capturedColors));
         CaretPosition = start;
         _selectionStart = start;
         _selectionLength = 0;
@@ -467,6 +486,11 @@ internal sealed class TextEditorCore
 
     public void InsertTextAtCaretForEdit(string normalizedText)
     {
+        InsertTextAtCaretForEdit(normalizedText, null);
+    }
+
+    public void InsertTextAtCaretForEdit(string normalizedText, Color? color)
+    {
         if (string.IsNullOrEmpty(normalizedText))
         {
             return;
@@ -474,8 +498,9 @@ internal sealed class TextEditorCore
 
         DeleteSelectionForEdit();
 
-        _applyInsert(CaretPosition, normalizedText);
-        RecordEdit(new Edit(EditKind.Insert, CaretPosition, normalizedText));
+        int insertIndex = CaretPosition;
+        _applyInsert(insertIndex, normalizedText);
+        RecordEdit(new Edit(EditKind.Insert, insertIndex, normalizedText, color));
         CaretPosition += normalizedText.Length;
         _selectionStart = CaretPosition;
         _selectionLength = 0;
@@ -543,7 +568,19 @@ internal sealed class TextEditorCore
         }
         else
         {
-            _applyInsert(edit.Index, edit.Text);
+            _setPendingInsertColor?.Invoke(edit.Color);
+            try
+            {
+                _applyInsert(edit.Index, edit.Text);
+                // Restore delete colors AFTER the insert, so the colored segments
+                // land at the correct positions (AdjustColoredSegmentsForInsert
+                // has already shifted existing segments for the new text).
+                _restoreDeleteColors?.Invoke(edit.Index, edit.DeleteColors);
+            }
+            finally
+            {
+                _setPendingInsertColor?.Invoke(null);
+            }
             SetCaretAndSelection(edit.Index + edit.Text.Length, false);
         }
 
@@ -556,7 +593,15 @@ internal sealed class TextEditorCore
     {
         if (edit.Kind == EditKind.Insert)
         {
-            _applyInsert(edit.Index, edit.Text);
+            _setPendingInsertColor?.Invoke(edit.Color);
+            try
+            {
+                _applyInsert(edit.Index, edit.Text);
+            }
+            finally
+            {
+                _setPendingInsertColor?.Invoke(null);
+            }
             SetCaretAndSelection(edit.Index + edit.Text.Length, false);
         }
         else
@@ -588,7 +633,8 @@ internal sealed class TextEditorCore
             var prev = _undo[^1];
             if (prev.Kind == EditKind.Insert
                 && prev.Index == edit.Index
-                && prev.Text == edit.Text)
+                && prev.Text == edit.Text
+                && prev.Color == edit.Color)
             {
                 // Delete cancels previous Insert at same position — remove the Insert,
                 // skip recording this Delete. Net effect: slot is empty for next Insert.
@@ -604,6 +650,6 @@ internal sealed class TextEditorCore
 
     private enum EditKind { Insert, Delete }
 
-    private readonly record struct Edit(EditKind Kind, int Index, string Text);
+    private readonly record struct Edit(EditKind Kind, int Index, string Text, Color? Color = null, ColoredRun[]? DeleteColors = null);
 }
 

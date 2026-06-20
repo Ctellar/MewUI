@@ -23,6 +23,21 @@ partial class GalleryView
             .Spacing(6)
             .Children(
                 box,
+                new Button()
+                    .Content("Add text")
+                    .OnClick(() => {
+                        box.AppendText("\nMulti-color: ", Color.Gray, scrollToCaret: true); 
+                        box.AppendText("Lorem ", Color.Cyan, scrollToCaret: true); 
+                        box.AppendText("ipsum ", Color.Orange, scrollToCaret: true); 
+                        box.AppendText("dolor ", Color.Red, scrollToCaret: true); 
+                        box.AppendText("sit ", Color.Green, scrollToCaret: true); 
+                        box.AppendText("amet.", Color.Blue, scrollToCaret: true); 
+                        }),
+                new Button()
+                    .Content("Disable / Enable")
+                    .OnClick(() => {
+                        box.IsEnabled = !box.IsEnabled;
+                    }),
                 new TextBlock()
                     .FontSize(11)
                     .Bind(TextBlock.TextProperty, box, TextBase.SelectionStartProperty,
