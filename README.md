@@ -2,10 +2,6 @@
 
 ![Aprillz.MewUI](https://raw.githubusercontent.com/aprillz/MewUI/main/assets/logo/logo_h-1280.png)
 
-<div align="center">
-  🎗️ <b>In loving memory of my beloved cat and companion, April. Forever in my heart.</b>
-</div>
-
 ![.NET](https://img.shields.io/badge/.NET-8%2B-512BD4?logo=dotnet&logoColor=white)
 ![Windows](https://img.shields.io/badge/Windows-10%2B-0078D4?logo=windows&logoColor=white)
 ![Linux](https://img.shields.io/badge/Linux-X11-FCC624?logo=linux&logoColor=black)
@@ -16,6 +12,28 @@
 [![NuGet Downloads](https://img.shields.io/nuget/dt/Aprillz.MewUI.svg?label=Downloads)](https://www.nuget.org/packages/Aprillz.MewUI/)
 
 ---
+
+<div align="center">
+
+🎗️ <b>In loving memory of my beloved cat and companion, April. Forever in my heart.</b>
+<p align="center">
+<img  height="600" alt="Untitled-2" src="https://github.com/user-attachments/assets/c9d7c42b-2a74-4e09-8dca-119041b990cf" />
+</p>
+
+`2012.04.15 – 2026.06.20`
+
+<p align="center">
+  사랑하는 사월아, 내 곁에 와줘서 고맙고 항상 행복했어.<br>
+  꼭 다시 만나자. 내 보물 송사월.
+</p>
+
+<p align="center">
+  My beloved April, thank you for coming into my life, and I was always so happy.<br>
+  We will surely meet again. My treasure, April.
+</p>
+
+---
+</div>
 
 **😺 MewUI** is a cross-platform and lightweight, code-first .NET GUI framework aimed at NativeAOT.
 
