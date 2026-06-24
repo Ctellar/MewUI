@@ -59,7 +59,7 @@ public sealed partial class MewVGWin32GraphicsFactory
         if (resolved != null)
         {
             _ = Win32Fonts.EnsurePrivateFontFamily(resolved.Value.FilePath);
-            return resolved.Value.FamilyName;
+            return GdiFamilyName(resolved.Value.FilePath, resolved.Value.FamilyName);
         }
 
         // 2. Legacy: file path directly in FontFamily
@@ -71,10 +71,20 @@ public sealed partial class MewVGWin32GraphicsFactory
         var path = Path.GetFullPath(familyOrPath);
         _ = Win32Fonts.EnsurePrivateFontFamily(path);
 
-        return FontResources.TryGetParsedFamilyName(path, out var parsed) && !string.IsNullOrWhiteSpace(parsed)
+        var fallback = FontResources.TryGetParsedFamilyName(path, out var parsed) && !string.IsNullOrWhiteSpace(parsed)
             ? parsed
             : "Segoe UI";
+        return GdiFamilyName(path, fallback);
     }
+
+    // GDI's CreateFont matches the legacy Windows family name (name ID 1), while the rest of the
+    // framework (and DirectWrite) use the typographic family name (name ID 16). For multi-weight fonts
+    // these differ, so resolving by the typographic name makes GDI silently substitute a fallback face.
+    private static string GdiFamilyName(string filePath, string fallbackFamily)
+        => OpenTypeNameTable.TryGetFamilyName(filePath, out var windowsFamily, preferLegacyFamily: true)
+                && !string.IsNullOrWhiteSpace(windowsFamily)
+            ? windowsFamily
+            : fallbackFamily;
 
     private partial IDisposable CreateWindowResources(IWindowSurface surface)
     {

@@ -59,6 +59,7 @@ internal sealed class X11WindowBackend : IWindowBackend
     private bool _allowsTransparency;
     private bool _enabled = true;
     private nint _currentCursor;
+    private CursorType? _currentCursorType;
     private IX11InputMethod? _inputMethod;
 
     // XInput2 scroll handling. _xi2Opcode is the per-display extension opcode discovered
@@ -204,12 +205,19 @@ internal sealed class X11WindowBackend : IWindowBackend
                 break;
 
             case Controls.WindowState.Maximized:
+                SendNetWmState(false, "_NET_WM_STATE_FULLSCREEN");
                 SendNetWmState(true, "_NET_WM_STATE_MAXIMIZED_HORZ", "_NET_WM_STATE_MAXIMIZED_VERT");
                 break;
 
             case Controls.WindowState.Normal:
+                SendNetWmState(false, "_NET_WM_STATE_FULLSCREEN");
                 SendNetWmState(false, "_NET_WM_STATE_MAXIMIZED_HORZ", "_NET_WM_STATE_MAXIMIZED_VERT");
                 NativeX11.XMapWindow(Display, Handle);
+                break;
+
+            case Controls.WindowState.FullScreen:
+                // The WM removes decorations and covers the panels while fullscreen, independent of _MOTIF hints.
+                SendNetWmState(true, "_NET_WM_STATE_FULLSCREEN");
                 break;
         }
     }
@@ -270,7 +278,7 @@ internal sealed class X11WindowBackend : IWindowBackend
 
         long flags;
         long decorations;
-        if (_allowsTransparency)
+        if (_allowsTransparency || Window.Borderless)
         {
             // Borderless: assert only decorations-off (re-asserted here since this is PropModeReplace). Don't
             // constrain FUNCTIONS - it is pointless without native buttons and can kill WM move/resize.
@@ -291,6 +299,17 @@ internal sealed class X11WindowBackend : IWindowBackend
             NativeX11.XChangeProperty(Display, Handle, atom, atom,
                 32, 0 /* PropModeReplace */, (nint)hints, 5);
         }
+    }
+
+    public void SetBorderless(bool value)
+    {
+        if (Display == 0 || Handle == 0)
+        {
+            return;
+        }
+
+        // Borderless is read from Window.Borderless inside ApplyMotifHints; reassert the decoration hint.
+        ApplyMotifHints();
     }
 
     public void SetTopmost(bool value)
@@ -1496,11 +1515,14 @@ internal sealed class X11WindowBackend : IWindowBackend
         var maxH = NativeX11.XInternAtom(Display, "_NET_WM_STATE_MAXIMIZED_HORZ", false);
         var maxV = NativeX11.XInternAtom(Display, "_NET_WM_STATE_MAXIMIZED_VERT", false);
         var hidden = NativeX11.XInternAtom(Display, "_NET_WM_STATE_HIDDEN", false);
+        var fullscreen = NativeX11.XInternAtom(Display, "_NET_WM_STATE_FULLSCREEN", false);
 
         bool isMaximized = maxH != 0 && maxV != 0 && atoms.Contains(maxH) && atoms.Contains(maxV);
         bool isMinimized = hidden != 0 && atoms.Contains(hidden);
+        bool isFullScreen = fullscreen != 0 && atoms.Contains(fullscreen);
 
         var newState = isMinimized ? Controls.WindowState.Minimized
+            : isFullScreen ? Controls.WindowState.FullScreen
             : isMaximized ? Controls.WindowState.Maximized
             : Controls.WindowState.Normal;
 
@@ -2690,6 +2712,15 @@ internal sealed class X11WindowBackend : IWindowBackend
             return;
         }
 
+        // Called on every hovered-element change. Skip the create/free churn when the type is unchanged;
+        // repeatedly recreating and freeing the same font cursor can trigger BadCursor on XFreeCursor.
+        if (_currentCursorType == cursorType)
+        {
+            return;
+        }
+
+        _currentCursorType = cursorType;
+
         // X11 standard cursor font shape constants (X11/cursorfont.h)
         const uint XC_left_ptr = 68;
         const uint XC_xterm = 152;
@@ -2725,12 +2756,14 @@ internal sealed class X11WindowBackend : IWindowBackend
 
         try
         {
-            nint newCursor = NativeX11.XCreateFontCursor(Display, shape);
+            nint newCursor = cursorType == CursorType.None
+                ? CreateInvisibleCursor()
+                : NativeX11.XCreateFontCursor(Display, shape);
             if (newCursor != 0)
             {
                 NativeX11.XDefineCursor(Display, Handle, newCursor);
 
-                if (_currentCursor != 0)
+                if (_currentCursor != 0 && _currentCursor != newCursor)
                 {
                     NativeX11.XFreeCursor(Display, _currentCursor);
                 }
@@ -2743,6 +2776,23 @@ internal sealed class X11WindowBackend : IWindowBackend
         {
             // Best-effort.
         }
+    }
+
+    // A 1x1 fully-transparent pixmap cursor: the standard way to hide the pointer on X11.
+    private nint CreateInvisibleCursor()
+    {
+        var root = NativeX11.XRootWindow(Display, NativeX11.XDefaultScreen(Display));
+        Span<byte> emptyBits = stackalloc byte[1];
+        nint bitmap = NativeX11.XCreateBitmapFromData(Display, root, emptyBits, 1, 1);
+        if (bitmap == 0)
+        {
+            return 0;
+        }
+
+        var color = default(XColor);
+        nint cursor = NativeX11.XCreatePixmapCursor(Display, bitmap, bitmap, ref color, ref color, 0, 0);
+        NativeX11.XFreePixmap(Display, bitmap);
+        return cursor;
     }
 
     public void SetImeMode(ImeMode mode)
