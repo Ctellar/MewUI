@@ -825,7 +825,7 @@ internal sealed class X11WindowBackend : IWindowBackend
         bool middleDown = (dev.mods.effective & (int)X11ModifierMask.Button2) != 0;
         bool rightDown = (dev.mods.effective & (int)X11ModifierMask.Button3) != 0;
 
-        WindowInputRouter.MouseMove(Window, pos, ClientToScreen(pos), leftDown: leftDown, rightDown: rightDown, middleDown: middleDown);
+        WindowInputRouter.MouseMove(Window, pos, ClientToScreen(pos), leftDown: leftDown, rightDown: rightDown, middleDown: middleDown, modifiers: GetModifiers((uint)dev.mods.effective));
 
         if (dev.valuators.mask_len <= 0 || dev.valuators.mask == 0 || dev.valuators.values == 0)
             return;
@@ -871,7 +871,7 @@ internal sealed class X11WindowBackend : IWindowBackend
         WindowInputRouter.MouseWheel(
             Window, pos, ClientToScreen(pos),
             new Vector(notchesX, notchesY),
-            leftDown, rightDown, middleDown);
+            leftDown, rightDown, middleDown, GetModifiers((uint)dev.mods.effective));
     }
 
     private void ApplyResolvedStartupPosition()
@@ -1682,7 +1682,7 @@ internal sealed class X11WindowBackend : IWindowBackend
             bool middleDown = (e.state & X11ModifierMask.Button2) != 0;
             bool rightDown = (e.state & X11ModifierMask.Button3) != 0;
 
-            WindowInputRouter.MouseWheel(Window, pos, ClientToScreen(pos), delta, leftDown, rightDown, middleDown);
+            WindowInputRouter.MouseWheel(Window, pos, ClientToScreen(pos), delta, leftDown, rightDown, middleDown, GetModifiers((uint)e.state));
 
             return;
         }
@@ -1751,7 +1751,8 @@ internal sealed class X11WindowBackend : IWindowBackend
             leftDown: left,
             rightDown: right,
             middleDown: middle,
-            clickCount: clickCount);
+            clickCount: clickCount,
+            modifiers: GetModifiers((uint)e.state));
     }
 
     private void HandleMotion(XMotionEvent e)
@@ -1763,7 +1764,7 @@ internal sealed class X11WindowBackend : IWindowBackend
         bool middle = (e.state & X11ModifierMask.Button2) != 0;
         bool right = (e.state & X11ModifierMask.Button3) != 0;
 
-        WindowInputRouter.MouseMove(Window, pos, screenPos, leftDown: left, rightDown: right, middleDown: middle);
+        WindowInputRouter.MouseMove(Window, pos, screenPos, leftDown: left, rightDown: right, middleDown: middle, modifiers: GetModifiers((uint)e.state));
     }
 
     private unsafe void HandleXdndEnter(XClientMessageEvent client)
@@ -2441,6 +2442,17 @@ internal sealed class X11WindowBackend : IWindowBackend
                         NativeX11.XChangeProperty(Display, Handle, netWmState, type: 4 /*ATOM*/, format: 32, mode: 0 /*Replace*/, (nint)(&data), nelements: 1);
                     }
                 }
+            }
+
+            // If the owner is kept above others (_NET_WM_STATE_ABOVE, i.e. Topmost), an owned window without it
+            // can be stacked below the owner's "above" layer and hidden behind it. Mirror the owner's ABOVE state
+            // so the owned/dialog window stays above its owner. WM-dependent but never worse than not mirroring.
+            // (Win32 sets HWND_TOPMOST; macOS sets the owned level to ownerLevel + 1 for the same reason.)
+            var wmState = NativeX11.XInternAtom(Display, "_NET_WM_STATE", false);
+            var aboveAtom = NativeX11.XInternAtom(Display, "_NET_WM_STATE_ABOVE", false);
+            if (wmState != 0 && aboveAtom != 0 && ReadAtomProperty(ownerHandle, wmState).Contains(aboveAtom))
+            {
+                SendNetWmState(true, "_NET_WM_STATE_ABOVE");
             }
         }
         catch

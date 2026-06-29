@@ -1874,7 +1874,7 @@ internal sealed class Win32WindowBackend : IWindowBackend
         bool leftDown = (User32.GetKeyState(VirtualKeys.VK_LBUTTON) & 0x8000) != 0;
         bool rightDown = (User32.GetKeyState(VirtualKeys.VK_RBUTTON) & 0x8000) != 0;
         bool middleDown = (User32.GetKeyState(VirtualKeys.VK_MBUTTON) & 0x8000) != 0;
-        WindowInputRouter.MouseMove(Window, pos, screenPos, leftDown, rightDown, middleDown);
+        WindowInputRouter.MouseMove(Window, pos, screenPos, leftDown, rightDown, middleDown, GetModifierKeys());
 
         return 0;
     }
@@ -1946,7 +1946,8 @@ internal sealed class Win32WindowBackend : IWindowBackend
             leftDown,
             rightDown,
             middleDown,
-            clickCount);
+            clickCount,
+            GetModifierKeys());
 
         return 0;
     }
@@ -1972,7 +1973,7 @@ internal sealed class Win32WindowBackend : IWindowBackend
         var pt = new POINT(screenX, screenY);
         User32.ScreenToClient(Handle, ref pt);
         var pos = new Point(pt.x / Window.DpiScale, pt.y / Window.DpiScale);
-        WindowInputRouter.MouseWheel(Window, pos, new Point(screenX, screenY), delta);
+        WindowInputRouter.MouseWheel(Window, pos, new Point(screenX, screenY), delta, modifiers: GetModifierKeys());
 
         return 0;
     }
@@ -2526,6 +2527,26 @@ internal sealed class Win32WindowBackend : IWindowBackend
 
         const int GWL_HWNDPARENT = -8;
         User32.SetWindowLongPtr(Handle, GWL_HWNDPARENT, ownerHandle);
+
+        // If the owner is topmost, an owned (non-topmost) window sits in the normal z-order band, which is
+        // entirely below the topmost band, so it would be hidden behind the owner. Match the owner's topmost
+        // state so the owned/dialog window stays above it. Ownership alone does not promote an already-shown
+        // window across bands. (macOS achieves the same by setting the owned level to ownerLevel + 1.)
+        if (ownerHandle != 0)
+        {
+            const int GWL_EXSTYLE = -20;
+            const uint WS_EX_TOPMOST = 0x00000008;
+            const int HWND_TOPMOST = -1;
+            const uint SWP_NOSIZE = 0x0001;
+            const uint SWP_NOMOVE = 0x0002;
+            const uint SWP_NOACTIVATE = 0x0010;
+
+            uint ownerExStyle = (uint)User32.GetWindowLongPtr(ownerHandle, GWL_EXSTYLE).ToInt64();
+            if ((ownerExStyle & WS_EX_TOPMOST) != 0)
+            {
+                User32.SetWindowPos(Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            }
+        }
     }
 
     public void CenterOnOwner()
