@@ -94,6 +94,7 @@ partial class GalleryView : UserControl
                 Section("Custom Rendering", CustomRenderingPage()),
                 Section("Transform", TransformPage()),
                 Section("Shapes", ShapesPage()),
+                Section("Separator", SeparatorPage()),
                 Section("Icons", IconsPage()),
                 Section("Transitions", TransitionsPage()),
                 Section("Overlay", OverlayPage())
